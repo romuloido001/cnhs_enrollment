@@ -1,101 +1,185 @@
 /**
- * CNHS Online Enrollment - Google Apps Script backend
- * 1. Create a Google Spreadsheet.
- * 2. Open Extensions > Apps Script and replace the editor contents with this file.
- * 3. Set SPREADSHEET_ID below to the ID from the spreadsheet URL.
- * 4. Deploy as a Web app: Execute as "Me"; Who has access: "Anyone".
+ * Calinan National High School - Online Enrollment
+ * Google Apps Script backend for index.html
  *
- * Protect the spreadsheet and limit access to authorized school personnel.
+ * SETUP:
+ * 1. Create/open your Google Spreadsheet.
+ * 2. Copy its ID from the URL: /spreadsheets/d/SPREADSHEET_ID/edit
+ * 3. Paste the ID into SPREADSHEET_ID below.
+ * 4. Deploy as a Web app: Execute as "Me", Who has access: "Anyone".
  */
 
-const SPREADSHEET_ID = "PASTE_YOUR_GOOGLE_SPREADSHEET_ID_HERE";
+const SPREADSHEET_ID = "https://script.google.com/macros/s/AKfycbyuIBEzmw6-Gb4l-sdVzbqmpMtQgcRuEFY6XnlqRNRI1Ysjp6Fpx5C4xFKOQF73L8mE/exec";
 const SHEET_NAME = "Enrollment Responses";
 
 const HEADERS = [
-  "Timestamp", "School Year", "Grade Level", "Enrollment Type", "LRN",
-  "Last Name", "First Name", "Middle Name", "Suffix", "Date of Birth", "Sex",
-  "Home Address", "Previous School", "Last Grade Completed",
-  "Parent/Guardian Name", "Relationship", "Mobile Number", "Email",
-  "Grade - Filipino", "Grade - English", "Grade - Science", "Grade - Mathematics",
-  "Grade - Araling Panlipunan", "Grade - Values Education",
-  "Grade - TLE", "Grade - MAPEH", "Privacy Consent"
+  "Submitted At",
+  "School Year",
+  "Grade Level",
+  "Enrollment Type",
+  "LRN",
+  "Last Name",
+  "First Name",
+  "Middle Name",
+  "Suffix",
+  "Date of Birth",
+  "Sex",
+  "Complete Home Address",
+  "Previous School",
+  "Last Grade Level Completed",
+  "Filipino",
+  "English",
+  "Science",
+  "Mathematics",
+  "Araling Panlipunan",
+  "Values Education",
+  "TLE",
+  "MAPEH",
+  "Parent/Guardian Full Name",
+  "Relationship to Learner",
+  "Mobile Number",
+  "Email Address",
+  "Privacy Consent"
 ];
 
 function doGet() {
-  return ContentService
-    .createTextOutput("CNHS Enrollment API is running.")
-    .setMimeType(ContentService.MimeType.TEXT);
+  return jsonResponse({
+    success: true,
+    message: "CNHS Enrollment endpoint is running.",
+    sheet: SHEET_NAME
+  });
 }
 
 function doPost(e) {
   const lock = LockService.getScriptLock();
+
   try {
     if (!e || !e.postData || !e.postData.contents) {
-      return jsonResponse({ ok: false, message: "Empty request." });
+      throw new Error("No enrollment data was received.");
     }
 
     const data = JSON.parse(e.postData.contents);
 
-    // Honeypot for basic automated spam.
-    if (data.website) return jsonResponse({ ok: true });
+    // The hidden honeypot field should remain empty.
+    if (data.website) {
+      return jsonResponse({ success: false, message: "Submission rejected." });
+    }
 
-    const required = [
-      "schoolYear", "gradeLevel", "enrollmentType", "lastName",
-      "firstName", "birthDate", "sex", "address", "guardianName",
-      "relationship", "contactNumber"
+    // Basic server-side validation. Browser validation alone is not sufficient.
+    const requiredFields = [
+      "schoolYear", "gradeLevel", "enrollmentType",
+      "lastName", "firstName", "birthDate", "sex",
+      "address", "guardianName", "relationship", "contactNumber"
     ];
-    const missing = required.filter(key => !String(data[key] || "").trim());
-    if (missing.length || data.consent !== true) {
-      return jsonResponse({
-        ok: false,
-        message: "Required information or privacy consent is missing."
-      });
+
+    const missing = requiredFields.filter(function (field) {
+      return !String(data[field] || "").trim();
+    });
+
+    if (missing.length) {
+      throw new Error("Missing required fields: " + missing.join(", "));
     }
 
-    if (!SPREADSHEET_ID || SPREADSHEET_ID.indexOf("PASTE_YOUR_") === 0) {
-      throw new Error("Set SPREADSHEET_ID in Code.gs before deployment.");
+    if (data.consent !== true && data.consent !== "true") {
+      throw new Error("Privacy consent is required.");
     }
 
-    lock.waitLock(15000);
+    const gradeFields = [
+      "gradeFilipino", "gradeEnglish", "gradeScience", "gradeMath",
+      "gradeAralPan", "gradeValues", "gradeTLE", "gradeMAPEH"
+    ];
+
+    gradeFields.forEach(function (field) {
+      const value = data[field];
+      if (value !== undefined && value !== null && String(value).trim() !== "") {
+        const grade = Number(value);
+        if (!Number.isFinite(grade) || grade < 0 || grade > 100) {
+          throw new Error("Invalid grade value for " + field + ".");
+        }
+      }
+    });
+
+    if (SPREADSHEET_ID === "PASTE_YOUR_GOOGLE_SPREADSHEET_ID_HERE") {
+      throw new Error("Please configure SPREADSHEET_ID in Code.gs.");
+    }
+
+    lock.waitLock(20000);
+
     const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
     let sheet = spreadsheet.getSheetByName(SHEET_NAME);
+
     if (!sheet) {
       sheet = spreadsheet.insertSheet(SHEET_NAME);
-      sheet.appendRow(HEADERS);
+    }
+
+    // Add headers on a new or empty response sheet.
+    if (sheet.getLastRow() === 0) {
+      sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
       sheet.setFrozenRows(1);
-    } else if (sheet.getLastRow() === 0) {
-      sheet.appendRow(HEADERS);
-      sheet.setFrozenRows(1);
+    } else {
+      // Do not silently append data under a mismatched/older header row.
+      const existingHeaders = sheet
+        .getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1))
+        .getDisplayValues()[0]
+        .filter(function (value) { return value !== ""; });
+
+      if (existingHeaders.join("|") !== HEADERS.join("|")) {
+        throw new Error(
+          'The "' + SHEET_NAME + '" tab has different headers. ' +
+          "Use a new empty tab or replace row 1 with the headers defined in Code.gs."
+        );
+      }
     }
 
     const row = [
-      new Date(),
-      clean(data.schoolYear), clean(data.gradeLevel), clean(data.enrollmentType),
-      clean(data.lrn), clean(data.lastName), clean(data.firstName),
-      clean(data.middleName), clean(data.suffix), clean(data.birthDate),
-      clean(data.sex), clean(data.address), clean(data.previousSchool),
-      clean(data.lastGrade), clean(data.guardianName), clean(data.relationship),
-      clean(data.contactNumber), clean(data.email),
-      clean(data.gradeFilipino), clean(data.gradeEnglish),
-      clean(data.gradeScience), clean(data.gradeMath),
-      clean(data.gradeAralPan), clean(data.gradeValues),
-      clean(data.gradeTLE), clean(data.gradeMAPEH), "Yes"
+      data.submittedAt || new Date().toISOString(),
+      data.schoolYear || "",
+      data.gradeLevel || "",
+      data.enrollmentType || "",
+      data.lrn || "",
+      data.lastName || "",
+      data.firstName || "",
+      data.middleName || "",
+      data.suffix || "",
+      data.birthDate || "",
+      data.sex || "",
+      data.address || "",
+      data.previousSchool || "",
+      data.lastGrade || "",
+      data.gradeFilipino || "",
+      data.gradeEnglish || "",
+      data.gradeScience || "",
+      data.gradeMath || "",
+      data.gradeAralPan || "",
+      data.gradeValues || "",
+      data.gradeTLE || "",
+      data.gradeMAPEH || "",
+      data.guardianName || "",
+      data.relationship || "",
+      data.contactNumber || "",
+      data.email || "",
+      true
     ];
+
     sheet.appendRow(row);
-    return jsonResponse({ ok: true, message: "Enrollment application saved." });
+
+    return jsonResponse({
+      success: true,
+      message: "Enrollment saved successfully."
+    });
 
   } catch (error) {
     console.error(error);
-    return jsonResponse({ ok: false, message: String(error.message || error) });
-  } finally {
-    try { lock.releaseLock(); } catch (ignored) {}
-  }
-}
+    return jsonResponse({
+      success: false,
+      message: error && error.message ? error.message : "Unable to save enrollment."
+    });
 
-function clean(value) {
-  // Prevent spreadsheet formula injection and trim excessive whitespace.
-  const text = String(value == null ? "" : value).trim().slice(0, 2000);
-  return /^[=+\-@]/.test(text) ? "'" + text : text;
+  } finally {
+    if (lock.hasLock()) {
+      lock.releaseLock();
+    }
+  }
 }
 
 function jsonResponse(payload) {

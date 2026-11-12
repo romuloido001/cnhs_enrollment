@@ -15,7 +15,7 @@ A responsive, GitHub Pages-ready enrollment frontend with a Google Apps Script b
 3. Copy the spreadsheet ID from its URL. It is the text between `/d/` and `/edit`.
 4. Open **Extensions → Apps Script**.
 5. Replace the editor contents with `google-apps-script/Code.gs`.
-6. Replace `PASTE_YOUR_GOOGLE_SPREADSHEET_ID_HERE` with your spreadsheet ID.
+6. Replace `https://script.google.com/macros/s/AKfycbyuIBEzmw6-Gb4l-sdVzbqmpMtQgcRuEFY6XnlqRNRI1Ysjp6Fpx5C4xFKOQF73L8mE/exec` with your spreadsheet ID.
 7. Save the project.
 
 The script creates an `Enrollment Responses` tab and its header row automatically on the first submission.
@@ -37,7 +37,7 @@ The script creates an `Enrollment Responses` tab and its header row automaticall
 2. Find this line near the bottom:
 
    ```js
-   const SCRIPT_URL = "PASTE_YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE";
+   const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyuIBEzmw6-Gb4l-sdVzbqmpMtQgcRuEFY6XnlqRNRI1Ysjp6Fpx5C4xFKOQF73L8mE/exec";
    ```
 
 3. Replace the placeholder with your deployed Apps Script `/exec` URL, keeping the quotation marks.
